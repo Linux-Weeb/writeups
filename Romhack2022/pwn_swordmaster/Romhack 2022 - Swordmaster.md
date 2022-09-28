@@ -247,25 +247,17 @@ Aaaanddd....
 
 ![](images/malloc-bin_sh.png)
 
-- .
-    
-    .
-    
-    .
-    
-    .
-    
+-  
+-   
+-  
+-  
 
 ![](images/sweaty-speedrunner.jpg)
 
-- .
-    
-    .
-    
-    .
-    
-    .
-    
+-  
+-   
+-  
+- 
 
 ![](images/shell.png)
 
