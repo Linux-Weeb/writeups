@@ -4,11 +4,11 @@ Category: **Pwn**
 
 Difficulty: **Medium**
 
-## Files
+# Files
 
 We are provided with the binary and a **glibc** folder containing the dynamic linker `ld-linux-x86-64.so.2` and the `libc.so.6`.
 
-## Binary
+# Binary
 
 Running the `file` and `checksec` commands on the binary, reveals that it's a **64-bit ELF** with all the protections enabled.
 
@@ -18,7 +18,7 @@ Running the `file` and `checksec` commands on the binary, reveals that it's a **
 
 Let's run it!
 
-## ./swordmaster
+# ./swordmaster
 
 Running the binary asks for a name and then we get to choose a class.
 
@@ -30,9 +30,9 @@ Then we are presented with a menu and have **4 energy** at our disposal to perfo
 
 After playing around a little and testing out all the options, nothing seems too suspicious but a lot is going on, so instead of trying to break the program randomly let's fire up **Ghidra** and start analyzing it.
 
-## Ghidra
+# Ghidra
 
-### Vulnerability #1
+## Vulnerability #1
 
 First thing to notice is that the class prompt has a default behavior for when the input is not one of the values 1, 2 or 3, which suffers from a **format string** vulnerability, as no format string parameter is specified.
 
@@ -40,7 +40,7 @@ First thing to notice is that the class prompt has a default behavior for when t
 
 We have a **leak**! That was fast. Let's inspect the rest of the binary.
 
-### Vulnerability #2
+## Vulnerability #2
 
 Upon checking the option `1. Craft sword` we can see that it asks the user for a number and then allocates, using **malloc()**, a buffer of that size. Not only that, but it also allows the user to write into that buffer `size_of_buffer + 8` bytes, thus causing a **buffer overflow** vulnerability.
 
@@ -50,7 +50,7 @@ This is a malloc() allocated buffer though, so we' re in **heap** territory.
 
 ![](images/levine.jpg)
 
-### Vulnerability #3
+## Vulnerability #3
 
 This one was also obvious, but it was easier to miss. The option `5. Change name` is supposed to allow us to change class, but doesn't work as we would expect the first time it's called.
 
@@ -72,7 +72,7 @@ It prints the value of `param_1 + 0x30`, the exact same address that the buffer 
 
 Boom! We got a **heap leak**.
 
-## Welcome to heap
+# Welcome to heap
 
 Having no experience at all with heap vulnerabilities, I started investigating at this point for possible attacks.
 
@@ -86,11 +86,11 @@ This attack requires:
 
 This looks promising.. We have a **heap overflow** vulnerability on the last allocated chunk, we control the **size** of the allocated buffers and we can perform this action multiple times since we have **4 energy**. Let's dive deeper..
 
-## House of Force attack
+# House of Force attack
 
 How does **HOF** work though? This attack assumes overwriting the top chunk through an overflow, modifying it to a **very large** value. The value of the top chunk indicates the size of the remaining unused heap space, so if we were to overwrite it with `0xffffffffffffffff` (the biggest possible value) the program would assume the whole virtual address space as valid for heap allocation. Through the use of malloc(), which returns a pointer to the allocated memory, we can **write data arbitrarily** (write-what-where principle).
 
-## Attack plan
+# Attack plan
 
 Our best bet here seems to be **spawning a shell** by overwriting **__malloc_hook()** with **system()**. To achieve that we will have to first overwrite the top chunk with `0xffffffffffffffff`. Up until *GLIBC version 2.28* there is no **integrity check** for the size of the top chunk. We are on version *2.27* as you can see below, so we can write any value to it without any problem.
 
@@ -98,9 +98,9 @@ Our best bet here seems to be **spawning a shell** by overwriting **__malloc_hoo
 
 The next malloc() call can now allocate **as much space** as we want. We will use that to move the top chunk **right before** the address of __malloc_hook(), so that the next malloc() call will point to the address of __malloc_hook(). Since we also control what's written into the buffer, we can overwrite __malloc_hook() with system() and our next call to malloc() will now call system(). We also need to pass a pointer to **"/bin/sh"** as argument to the last malloc(). Let's take it step by step.
 
-## Exploitation
+# Exploitation
 
-### LIBC base
+## LIBC base
 
 First things first, let's find the **address of __malloc_hook()**. Since we already have a heap leak we can use the **format string** vulnerability to get a **libc leak**. After some testing, the **13th** leak of **printf()** seems to point to a libc address.
 
@@ -115,7 +115,7 @@ Yeap. It's a libc address with an offset of `0x21c87` from the base, so let's ge
 *At the class prompt:*
 
 ```python
-## Leak libc address
+# Leak libc address
 io.sendlineafter(">> ", "%13$p")
 leak1 = int(io.recvuntil('class!').split()[4], 16) - 0x21c87
 log.info(f"libc base: {hex(leak1)}")
@@ -123,12 +123,12 @@ log.info(f"libc base: {hex(leak1)}")
 
 Since we're here let's also grab the heap leak and calculate the base.
 
-### Heap base
+## Heap base
 
 *At the menu prompt:*
 
 ```python
-## Leak heap address
+# Leak heap address
 io.sendlineafter(">> ", "5")
 io.sendlineafter(">> ", "3")
 io.recvuntil("Class: ")
@@ -138,7 +138,7 @@ log.info(f"heap base: {hex(leak2)}")
 
 Aight. Let's get to the good part.
 
-### Top chunk overflow
+## Top chunk overflow
 
 Let's have a look at the heap chunks in **gdb** with `vis` command before allocating anything ourselves.
 
@@ -166,7 +166,7 @@ malloc(24, b"A" * 24 + b"\xff" * 8)
 
 Good. As you can see the **top chunk is overflowed** and located at the address we expected. The next malloc() call can now be of **whatever size** we want.
 
-### Arbitrary heap allocation (write-what-where)
+## Arbitrary heap allocation (write-what-where)
 
 We need it to be at the address of `__malloc_hook - 0x8` so that the next call to malloc() will return a pointer to __malloc_hook(). Let's calculate the **distance size** we need to feed malloc() to move the top chunk right before malloc hook.
 
@@ -213,7 +213,7 @@ This should be at offset `0x1340 + 0x10` from the **heap base**.
 
 ![](images/bin-sh.png)
 
-### __malloc_hook() overwrite
+## __malloc_hook() overwrite
 
 Now it's finally time to overwrite __malloc_hook() with system().
 
@@ -235,7 +235,7 @@ Done! I don't even need to keep going..
 
 (Jk. Now is the best part.)
 
-### malloc("/bin/sh")
+## malloc("/bin/sh")
 
 Last but not least, let's call `malloc("/bin/sh")`. malloc() now will call system() and we just need to pass as the first argument the **pointer to "/bin/sh"** from earlier. Leave the data argument empty here.
 
@@ -247,17 +247,25 @@ Aaaanddd....
 
 ![](images/malloc-bin_sh.png)
 
--  
--   
--  
--  
+- .
+    
+    .
+    
+    .
+    
+    .
+    
 
 ![](images/sweaty-speedrunner.jpg)
 
--  
--   
--  
-- 
+- .
+    
+    .
+    
+    .
+    
+    .
+    
 
 ![](images/shell.png)
 
